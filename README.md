@@ -7,6 +7,7 @@ Each snapshot has its own status, evidence, and known limits.
 
 | Application | Snapshot date | Platform | Status | Evidence |
 | --- | --- | --- | --- | --- |
+| [draw.io](apps/drawio/README.md) | 2026-11-07 | macOS Apple Silicon | V9 local ad-hoc app/DMG built; native workflows passed; stronger recovery-exit proof limited; **source-only record** | [Source and evidence](apps/drawio/snapshots/2026-11-07/README.md) |
 | [draw.io](apps/drawio/README.md) | 2026-11-03 | macOS Apple Silicon | Verified native workflow; developer snapshot only | [Snapshot report](apps/drawio/snapshots/2026-11-03/README.md) |
 
 ## Status terms

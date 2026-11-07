@@ -1,0 +1,63 @@
+{
+  "schema": "gyldlab.keld-patched-apps.drawio-source/v1",
+  "record_date": "2026-11-07",
+  "record_class": "source-only-local-adhoc-macos-development",
+  "application": {
+    "name": "draw.io Desktop",
+    "version": "31.7.0",
+    "desktop_commit": "2edf9fb97eff9bd94bdda33abfe1ee9e7f7bb55e",
+    "embedded_webapp_commit": "24b76c2cbd55d88e354042e8d329a2e4708972bc"
+  },
+  "source": {
+    "original_main_sha256": "55505e690d37070344be172a68ad997ab48c687302dc5dee30a988d4f153770d",
+    "final_main_sha256": "17ba6d13732fe2b2b055340e5933b41c722a82d5c1212c65f866beb6aacc7208",
+    "patch_sha256": "ac64e351e051ffb998dbbba45f9d916cf21cceb5bf8b7276d21d1cbd4198ffcc",
+    "reverse_patch_sha256": "dd5206e829baaba5c27872363dcf605e1bf45d0e068d75e76851fd2920102ee3",
+    "original_preload_sha256": "1091fd21ef727a52ef89bde814aa662eed4a0c3ce32beb858a068a96b285bf98",
+    "forward_and_reverse_zero_fuzz": true,
+    "renderer_or_preload_modified": false
+  },
+  "recovery_contract": {
+    "spec_sha256_at_source_patch_review": "9bc50c37b2a0f0e3abce8e2227e7cf965c0e6a806ba60f4286b8d2939e484554",
+    "bounded_source_patch_approval": "https://github.com/gyldlab/keld/issues/1404#issuecomment-6700147830"
+  },
+  "keld": {
+    "published_framework_commit": "69ce0730c2b23a631dc8324bafb4264f90a4e394",
+    "framework_draft_pr": "https://github.com/gyldlab/keld/pull/1447",
+    "build_source_manifest_sha256": "4e314351ee48280dd3e50435c26b2c34b00eade7a1c04583d5c0a06ab246c06e",
+    "qualification_sha256": "909429159ec34fa8e57dfee8a4d0c0a765cd2e949dbd0924a5bcc0aa68dce987",
+    "host_input_sha256": "d685ce76e56558fae14c28cf909c6cdf298c469f023b7abf55b4457747d30beb",
+    "cli_input_sha256": "d5ed5d6d4c867b93ab9f09f1e644032ebaeb6a36f290961fc8a5d80050afea39",
+    "signed_host_sha256": "7897b55a57e55b3399d79e68403a4f65c48e74a84ef87bb2f5b7f95bf07391ca",
+    "declared_host_version": "0.0.1-gh1404-final-v9"
+  },
+  "providers": {
+    "electron_archive_sha256": "8db01e3124a392fbc3a6d50e39038668e91147e5ed77cd56f040b881979f8c07",
+    "electron_tree": "b4c8e8f14fba45d8f3ef5ea044db903993b257c6f3ecb89722c0b76438380118",
+    "api_archive_sha256": "0a3ec037b81170885085fec1eca6a6aa6b00d54e07f2799f3219c6befe1fd807",
+    "api_tree": "68b9d8461482c51848d2d2c79bab655a489fceea4abc0fc6092e6e393eed68c6",
+    "kipc_archive_sha256": "b202e045cdbb049833608d7c38350789180709135c0eef72ebd7de401bf5c5cb",
+    "kipc_tree": "495bffe3519863389fc872e25f7b10857ec59b923382b56c161d26439d2b5d78"
+  },
+  "local_artifact": {
+    "class": "local-adhoc",
+    "target": "macos-arm64",
+    "application_bundle": "KELD Drawio GH1404.app",
+    "dmg_name": "KELD Drawio GH1404.dmg",
+    "dmg_sha256": "b0984a9ba0666169a24438d0ca404d6f9e4634ee058ef969a740a5ac1717a9d4",
+    "artifact_receipt_sha256": "c74385bfe100728457bb33a22aef1c9bd4b7a4b8509aaca6968e17077b06986e",
+    "minimum_macos_declared": "14.0",
+    "download_in_source_repository": false
+  },
+  "qualification": {
+    "rust_workspace": "PASS_2093_TESTS_17_SKIPPED",
+    "sdk_kipc_api_electron": "PASS_6_OF_6_TEST_AND_TYPECHECK_COMMANDS",
+    "v9_native_save_cancel_discard_bun_g2_post_save": "PASS_ROOT_NATIVE",
+    "v9_ordinary_host_kernel_exit": "PASS_STATUS_ZERO",
+    "v9_recovered_host_kernel_exit": "OBSERVED_ZERO_NO_PRE_REGISTERED_SAME_BIRTH_OBSERVER",
+    "public_notarization": "UNVERIFIED",
+    "second_mac": "UNVERIFIED",
+    "performance_score": "NOT_MEASURED",
+    "windows_linux": "DESIGN_ONLY"
+  }
+}

@@ -1,0 +1,632 @@
+--- a/src/main/electron.js
++++ b/src/main/electron.js
+@@ -4,6 +4,12 @@
+ import url from 'url';
+ import {Menu as menu, shell, dialog, session, screen, ClipboardItem, 
+ 		clipboard, nativeImage, nativeTheme, ipcMain, app, BrowserWindow} from 'electron';
++import {
++	isCurrentOriginalIpcDocument,
++	awaitOriginalIpcCloseVeto,
++	destroyOriginalIpcDocument,
++	consumeOriginalRecoveryStartup
++} from 'electron/internal/original-ipc';
+ import crc from 'crc';
+ import zlib from 'zlib';
+ import log from'electron-log';
+@@ -691,15 +697,23 @@
+ //app.enableSandbox(); // This maybe the reason snap stopped working
+ 
+ // Only allow request from the app code itself
+-function validateSender (frame)
+-{
+-	// senderFrame may be null if the frame has navigated or been destroyed
+-	// before the IPC handler runs (documented behaviour on IpcMainEvent).
+-	if (frame == null) return false;
+-	return frame.url.replace(/\/.\:\//, str => str.toUpperCase()).startsWith(codeUrl);
++function validateSender (event, expectedContents)
++{
++	// The existing native/Host event capability owns exact source/window/document
++	// eligibility. A URL, protocol string or fixture authority cannot grant it.
++	if (!isCurrentOriginalIpcDocument(event)) return false;
++	const frame = event.senderFrame;
++	if (frame == null || typeof frame.url !== 'string' ||
++		typeof frame.origin !== 'string' || frame.origin.length === 0 || frame.origin === 'null') return false;
++	const sender = event.sender;
++	if (sender == null || sender.isDestroyed() ||
++		(expectedContents != null && sender !== expectedContents)) return false;
++	// Both values are truthful native observations. Do not forge a file prefix
++	// or use JS URL.origin, which is opaque for nonstandard resource schemes.
++	return frame.url === sender.getURL();
+ }
+ 
+-function createWindow (opt = {})
++function createWindow (opt = {}, originalStartup)
+ {
+ 	let lastWinSizeStr = (store && store.get('lastWinSize')) || '1200,800,0,0,false,false';
+ 	let lastWinSize = parseLastWinSize(lastWinSizeStr);
+@@ -774,7 +788,9 @@
+ 		slashes: true
+ 	})
+ 	
+-	mainWindow.loadURL(ourl)
++	const retainedOriginal = originalStartup != null && consumeOriginalRecoveryStartup(mainWindow);
++	if (originalStartup != null) originalStartup.retained = retainedOriginal;
++	if (!retainedOriginal) mainWindow.loadURL(ourl);
+ 
+ 	// The configuration lives in the renderer, so the local paths it declares
+ 	// (see loadConfigReadablePaths) must be collected again after every load —
+@@ -847,14 +863,97 @@
+ 	});
+ 
+ 	let uniqueIsModifiedId, modifiedModalOpen = false;
++	let modifiedCloseAttempt;
++
++	function isModifiedCloseCurrent(attempt)
++	{
++		return modifiedCloseAttempt === attempt && !mainWindow.isDestroyed() &&
++			validateSender(attempt.event, mainWindow.webContents);
++	}
++
++	function retireModifiedClose(attempt, cancelQuit)
++	{
++		if (modifiedCloseAttempt !== attempt) return;
++		if (attempt.saveListener != null)
++		{
++			ipcMain.removeListener('saveAndClose-result', attempt.saveListener);
++		}
++		if (attempt.draftListener != null)
++		{
++			ipcMain.removeListener('draftRemoved', attempt.draftListener);
++		}
++		modifiedCloseAttempt = undefined;
++		modifiedModalOpen = false;
++		if (cancelQuit) cmdQPressed = false;
++	}
++
++	function forgetClosedWindow()
++	{
++		const index = windowsRegistry.indexOf(mainWindow);
++		if (index >= 0) windowsRegistry.splice(index, 1);
++	}
++
++	function refusedOriginalClose(attempt, error)
++	{
++		if (error == null || error.code !== 'KELD-CORE-054') throw error;
++		// A declared refusal is not a completed close or a successor's Cancel.
++		console.warn('Original document close refused before native admission', error);
++		retireModifiedClose(attempt, false);
++		return false;
++	}
++
++	async function waitModifiedCloseVeto(attempt)
++	{
++		if (!isModifiedCloseCurrent(attempt))
++		{
++			retireModifiedClose(attempt, false);
++			return false;
++		}
++		try
++		{
++			await awaitOriginalIpcCloseVeto(attempt.event);
++		}
++		catch (error)
++		{
++			return refusedOriginalClose(attempt, error);
++		}
++		if (!isModifiedCloseCurrent(attempt))
++		{
++			retireModifiedClose(attempt, false);
++			return false;
++		}
++		return true;
++	}
++
++	async function destroyModifiedClose(attempt)
++	{
++		if (!(await waitModifiedCloseVeto(attempt))) return false;
++		attempt.nativeDestroyPending = true;
++		try
++		{
++			await destroyOriginalIpcDocument(attempt.event);
++		}
++		catch (error)
++		{
++			if (error != null && error.code === 'KELD-CORE-054') attempt.nativeDestroyPending = false;
++			return refusedOriginalClose(attempt, error);
++		}
++		// Genuine physical Destroyed plus its correlated response completed.
++		// The original event is now normally retired; do not demand it is current.
++		retireModifiedClose(attempt, false);
++		forgetClosedWindow();
++		return true;
++	}
+ 
+ 	ipcMain.on('isModified-result', async (e, data) =>
+ 	{
+-		if (!validateSender(e.senderFrame) || uniqueIsModifiedId != data.uniqueId || modifiedModalOpen) return null;
++		if (mainWindow.isDestroyed() || !validateSender(e, mainWindow.webContents) || uniqueIsModifiedId != data.uniqueId || modifiedModalOpen) return null;
+ 
+ 		if (data.isModified)
+ 		{
+ 			modifiedModalOpen = true;
++			const attempt = { event: e };
++			modifiedCloseAttempt = attempt;
+ 			// Button order follows platform conventions, indices are mapped below.
+ 			// Enter triggers Save, Esc triggers Cancel, Alt+S/Alt+D work on Windows and Linux
+ 			let saveBtn = 0, cancelBtn, discardBtn, buttons;
+@@ -886,66 +985,94 @@
+ 					message: 'The document has unsaved changes. Do you want to save them?'
+ 				});
+ 
++			if (!isModifiedCloseCurrent(attempt))
++			{
++				retireModifiedClose(attempt, false);
++				return null;
++			}
++			if (!(await waitModifiedCloseVeto(attempt))) return null;
++
+ 			if (response === saveBtn)
+ 			{
+-				//Save in the renderer (opens Save As dialog for new files), then
+-				//close the window unless saving failed or was cancelled
++				// Preserve the latest same-document close query correlation.
+ 				const saveUniqueId = uniqueIsModifiedId;
+-				mainWindow.webContents.send('saveAndClose', saveUniqueId);
+-
+-				const saveAndCloseResult = (e, result) =>
+-				{
+-					if (!validateSender(e.senderFrame) || saveUniqueId != result.uniqueId) return null;
+-
+-					ipcMain.removeListener('saveAndClose-result', saveAndCloseResult);
+-
+-					if (result.success && !mainWindow.isDestroyed())
++				const saveAndCloseResult = async (event, result) =>
++				{
++					if (!isModifiedCloseCurrent(attempt))
+ 					{
+-						mainWindow.destroy();
++						retireModifiedClose(attempt, false);
++						return null;
++					}
++					if (!validateSender(event, e.sender) || event.sender !== e.sender ||
++						saveUniqueId != result.uniqueId) return null;
++
++					if (result.success)
++					{
++						if (!isModifiedCloseCurrent(attempt)) return null;
++						await destroyModifiedClose(attempt);
+ 					}
+ 					else
+ 					{
+-						cmdQPressed = false;
+-						modifiedModalOpen = false;
++						if (await waitModifiedCloseVeto(attempt)) retireModifiedClose(attempt, true);
+ 					}
+ 				};
+ 
++				attempt.saveListener = saveAndCloseResult;
+ 				ipcMain.on('saveAndClose-result', saveAndCloseResult);
++				if (isModifiedCloseCurrent(attempt)) e.reply('saveAndClose', saveUniqueId);
+ 			}
+ 			else if (response === discardBtn)
+ 			{
+-				//If user chose not to save, remove the draft
++				// Only the admitted original document may complete this close.
+ 				if (data.draftPath != null)
+ 				{
++					if (!isModifiedCloseCurrent(attempt)) return null;
+ 					await deleteFile(data.draftPath);
+-					mainWindow.destroy();
++					if (!isModifiedCloseCurrent(attempt))
++					{
++						retireModifiedClose(attempt, false);
++						return null;
++					}
++					await destroyModifiedClose(attempt);
+ 				}
+ 				else
+ 				{
+-					mainWindow.webContents.send('removeDraft');
+-
+-					ipcMain.once('draftRemoved', (e) =>
++					const draftRemoved = async (event) =>
+ 					{
+-						if (!validateSender(e.senderFrame)) return null;
+-
+-						mainWindow.destroy();
+-					});
++						if (!isModifiedCloseCurrent(attempt))
++						{
++							retireModifiedClose(attempt, false);
++							return null;
++						}
++						if (!validateSender(event, e.sender) || event.sender !== e.sender) return null;
++						if (!isModifiedCloseCurrent(attempt)) return null;
++						await destroyModifiedClose(attempt);
++					};
++					attempt.draftListener = draftRemoved;
++					ipcMain.on('draftRemoved', draftRemoved);
++					if (isModifiedCloseCurrent(attempt)) e.reply('removeDraft');
+ 				}
+ 			}
+ 			else
+ 			{
+-				cmdQPressed = false;
+-				modifiedModalOpen = false;
++				retireModifiedClose(attempt, true);
+ 			}
+ 		}
+ 		else
+ 		{
+-			mainWindow.destroy();
++			modifiedModalOpen = true;
++			const attempt = { event: e };
++			modifiedCloseAttempt = attempt;
++			await destroyModifiedClose(attempt);
+ 		}
+ 	});
+-	
++
+ 	mainWindow.on('close', (event) =>
+ 	{
++		if (modifiedCloseAttempt != null && !isModifiedCloseCurrent(modifiedCloseAttempt))
++		{
++			retireModifiedClose(modifiedCloseAttempt, false);
++		}
+ 		uniqueIsModifiedId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+ 
+ 		if (__DEV__)
+@@ -953,7 +1080,7 @@
+ 			const index = windowsRegistry.indexOf(mainWindow)
+ 			console.log('Window on close', index, uniqueIsModifiedId)
+ 		}
+-		
++
+ 		const contents = mainWindow.webContents
+ 
+ 		if (contents != null)
+@@ -968,16 +1095,24 @@
+ 	// Emitted when the window is closed.
+ 	mainWindow.on('closed', () =>
+ 	{
++		// Keep this original main's bookkeeping pending until the scoped response.
++		// BrowserWindow's genuine physical tombstone/lifecycle ordering is unchanged.
++		if (modifiedCloseAttempt != null && modifiedCloseAttempt.nativeDestroyPending)
++		{
++			modifiedCloseAttempt.closedObserved = true;
++			return;
++		}
++		if (modifiedCloseAttempt != null) retireModifiedClose(modifiedCloseAttempt, false);
+ 		const index = windowsRegistry.indexOf(mainWindow)
+-		
+-		if (__DEV__) 
++
++		if (__DEV__)
+ 		{
+ 			console.log('Window closed idx:%d', index)
+ 		}
+-		
+-		windowsRegistry.splice(index, 1)
++
++		forgetClosedWindow();
+ 	})
+-	
++
+ 	return mainWindow
+ }
+ 
+@@ -1026,14 +1161,14 @@
+ 	// close and crashed the main process on the next openDevTools message
+ 	ipcMain.on('openDevTools', (e) =>
+ 	{
+-		if (!validateSender(e.senderFrame)) return null;
++		if (!validateSender(e)) return null;
+ 
+ 		e.sender.openDevTools();
+ 	})
+ 
+ 	ipcMain.on('newfile', (e, arg) =>
+ 	{
+-		if (!validateSender(e.senderFrame)) return null;
++		if (!validateSender(e)) return null;
+ 
+ 		let opts = {};
+ 
+@@ -1437,14 +1572,14 @@
+ 
+ 								function onImportSuccess(e, xml)
+ 								{
+-									if (!validateSender(e.senderFrame)) return null;
++									if (!validateSender(e)) return null;
+ 
+ 									endImport(xml);
+ 								};
+ 
+ 								function onImportError(e)
+ 								{
+-									if (!validateSender(e.senderFrame)) return null;
++									if (!validateSender(e)) return null;
+ 
+ 									endImport(null);
+ 								};
+@@ -1734,7 +1869,7 @@
+ 			
+ 			function loadFinished(e)
+ 			{
+-				if (e != null && !validateSender(e.senderFrame)) return null;
++				if (e != null && !validateSender(e)) return null;
+ 
+ 				loadEvtCount++;
+ 				
+@@ -1770,76 +1905,95 @@
+     	})
+     }
+ 
+-    let win = createWindow()
++    const originalStartup = {retained: false};
++    let win = createWindow({}, originalStartup);
++
++	if (originalStartup.retained)
++	{
++		// The same native finished page is already loaded. Do not replay argv
++		// or manufacture either half of the fresh-page loadFinished join.
++		firstWinLoaded = true;
++	}
++	else
++	{
+     
+-	let loadEvtCount = 0;
++		let loadEvtCount = 0;
+ 			
+-	function loadFinished(e)
+-	{
+-		if (e != null && !validateSender(e.senderFrame)) return null;
+-
+-		loadEvtCount++;
++		function loadFinished(e)
++		{
++			if (e != null && !validateSender(e)) return null;
++
++			loadEvtCount++;
+ 		
+-		if (loadEvtCount == 2)
+-		{
+-			// User intent: paths passed on the command line / file association.
+-			if (Array.isArray(parsedArgs))
+-			{
+-				// Directories cannot be opened as diagrams (reading one shows
+-				// an EISDIR error dialog), so drop them here. Nonexistent
+-				// paths are kept: they reach the renderer as before.
+-				parsedArgs = parsedArgs.filter(a =>
+-				{
+-					if (typeof a !== 'string' || !a) return false;
+-
+-					const st = statSafe(a);
+-					return st == null || !st.isDirectory();
+-				});
+-
+-				for (const a of parsedArgs)
+-				{
+-					if (fs.existsSync(a))
++			if (loadEvtCount == 2)
++			{
++				// User intent: paths passed on the command line / file association.
++				if (Array.isArray(parsedArgs))
++				{
++					// Directories cannot be opened as diagrams (reading one shows
++					// an EISDIR error dialog), so drop them here. Nonexistent
++					// paths are kept: they reach the renderer as before.
++					parsedArgs = parsedArgs.filter(a =>
+ 					{
+-						blessPath(a);
++						if (typeof a !== 'string' || !a) return false;
++
++						const st = statSafe(a);
++						return st == null || !st.isDirectory();
++					});
++
++					for (const a of parsedArgs)
++					{
++						if (fs.existsSync(a))
++						{
++							blessPath(a);
++						}
+ 					}
+ 				}
+-			}
+-
+-			//Sending entire program is not allowed in Electron 9 as it is not native JS object
+-			win.webContents.send('args-obj', {args: parsedArgs, create: options.create, layout: options.layout, normalize: options.normalize, mermaidImage: options.mermaidImage});
+-		}
+-	}
++
++				//Sending entire program is not allowed in Electron 9 as it is not native JS object
++				win.webContents.send('args-obj', {args: parsedArgs, create: options.create, layout: options.layout, normalize: options.normalize, mermaidImage: options.mermaidImage});
++			}
++		}
+ 	
+-	//Order of these two events is not guaranteed, so wait for them async.
+-	//TOOD There is still a chance we catch another window 'app-load-finished' if user created multiple windows quickly 
+-	ipcMain.once('app-load-finished', loadFinished);
+-
+-    win.webContents.on('did-finish-load', function()
+-    {
+-    	if (firstWinFilePath != null)
+-		{
+-    		if (parsedArgs != null)
+-    		{
+-    			parsedArgs.push(firstWinFilePath);
+-    		}
+-    		else
+-			{
+-    			parsedArgs = [firstWinFilePath];
+-			}
+-		}
+-
+-    	firstWinLoaded = true;
+-
+-    	migrateLegacyRecentsOnce(win.webContents);
+-
+-        win.webContents.zoomFactor = appZoom;
+-        win.webContents.setVisualZoomLevelLimits(1, appZoom);
+-		loadFinished();
+-    });
++		//Order of these two events is not guaranteed, so wait for them async.
++		//TOOD There is still a chance we catch another window 'app-load-finished' if user created multiple windows quickly 
++		ipcMain.once('app-load-finished', loadFinished);
++
++	    win.webContents.on('did-finish-load', function()
++	    {
++	    	if (firstWinFilePath != null)
++			{
++	    		if (parsedArgs != null)
++	    		{
++	    			parsedArgs.push(firstWinFilePath);
++	    		}
++	    		else
++				{
++	    			parsedArgs = [firstWinFilePath];
++				}
++			}
++
++	    	firstWinLoaded = true;
++
++	    	migrateLegacyRecentsOnce(win.webContents);
++
++	        win.webContents.zoomFactor = appZoom;
++	        if (typeof win.webContents.setVisualZoomLevelLimits === 'function')
++	        {
++	            win.webContents.setVisualZoomLevelLimits(1, appZoom);
++	        }
++	        else
++	        {
++	            console.warn('Keld macOS migration: setVisualZoomLevelLimits is unavailable; continuing without applying visual zoom limits.');
++	        }
++			loadFinished();
++	    });
+ 	
++	}
++
+ 	function toggleSpellCheck(e)
+ 	{
+-		if (e != null && !validateSender(e.senderFrame)) return null;
++		if (e != null && !validateSender(e)) return null;
+ 
+ 		if (store != null)
+ 		{
+@@ -1852,7 +2006,7 @@
+ 
+ 	function toggleStoreBkp(e)
+ 	{
+-		if (e != null && !validateSender(e.senderFrame)) return null;
++		if (e != null && !validateSender(e)) return null;
+ 
+ 		if (store != null)
+ 		{
+@@ -1865,7 +2019,7 @@
+ 
+ 	function toggleGoogleFonts(e)
+ 	{
+-		if (e != null && !validateSender(e.senderFrame)) return null;
++		if (e != null && !validateSender(e)) return null;
+ 
+ 		if (store != null)
+ 		{
+@@ -1878,7 +2032,7 @@
+ 
+ 	function toggleFullscreen(e)
+ 	{
+-		if (e != null && !validateSender(e.senderFrame)) return null;
++		if (e != null && !validateSender(e)) return null;
+ 
+ 		let win = BrowserWindow.getFocusedWindow();
+ 
+@@ -1895,7 +2049,7 @@
+ 		if (disableUpdate) return null;
+ 
+ 		if (e != null && e.senderFrame != null &&
+-			!validateSender(e.senderFrame)) return null;
++			!validateSender(e)) return null;
+ 
+ 		manualUpdateCheck = true;
+ 		safeUpdaterCall('checkForUpdates (manual)', () => autoUpdater.checkForUpdates());
+@@ -2158,7 +2312,7 @@
+ 			
+ 			function loadFinished(e)
+ 			{
+-				if (e != null && !validateSender(e.senderFrame)) return null;
++				if (e != null && !validateSender(e)) return null;
+ 
+ 				loadEvtCount++;
+ 				
+@@ -3058,7 +3212,7 @@
+ function exportDiagram(event, args, directFinalize)
+ {
+ 	if (event != null && event.senderFrame != null &&
+-		!validateSender(event.senderFrame)) return null;
++		!validateSender(event)) return null;
+ 
+ 	// Only the first reply counts: a renderer that dies while printing or
+ 	// capturing fails that step too, which replies an error of its own
+@@ -3146,7 +3300,7 @@
+ 
+ 			function renderingFinishHandler(e, renderInfo)
+ 			{
+-				if (!validateSender(e.senderFrame)) return null;
++				if (!validateSender(e)) return null;
+ 
+ 				if (renderInfo == null)
+ 				{
+@@ -3348,7 +3502,7 @@
+ 					
+ 					ipcMain.once('svg-data', (e, data) =>
+ 					{
+-						if (!validateSender(e.senderFrame)) return null;
++						if (!validateSender(e)) return null;
+ 
+ 						event.reply('export-success', data);
+ 					});
+@@ -3363,7 +3517,7 @@
+ 			// convert, eg. invalid Mermaid or an unknown --layout
+ 			function exportErrorHandler(e, msg)
+ 			{
+-				if (!validateSender(e.senderFrame)) return null;
++				if (!validateSender(e)) return null;
+ 
+ 				event.reply('export-error', msg);
+ 			};
+@@ -3375,14 +3529,14 @@
+ 			{
+ 				ipcMain.once('xml-data', (e, data) =>
+ 				{
+-					if (!validateSender(e.senderFrame)) return null;
++					if (!validateSender(e)) return null;
+ 
+ 					event.reply('export-success', data);
+ 				});
+ 				
+ 				ipcMain.once('xml-data-error', (e) =>
+ 				{
+-					if (!validateSender(e.senderFrame)) return null;
++					if (!validateSender(e)) return null;
+ 
+ 					event.reply('export-error');
+ 				});
+@@ -4430,7 +4584,7 @@
+ 
+ ipcMain.on("rendererReq", async (event, args) =>
+ {
+-	if (!validateSender(event.senderFrame)) return null;
++	if (!validateSender(event)) return null;
+ 
+ 	try
+ 	{
+@@ -4525,7 +4679,7 @@
+ 			break;
+ 		case 'exit':
+ 			app.quit();
+-			break;
++			return;
+ 		case 'getLocalFonts':
+ 			ret = await getLocalFonts();
+ 			break;
