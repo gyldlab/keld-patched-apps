@@ -23,6 +23,10 @@ The patch adapts original-main event authentication, native close handling, Exit
 4. Verify that the resulting main SHA-256 is `17ba6d13732fe2b2b055340e5933b41c722a82d5c1212c65f866beb6aacc7208`. Reverse the same patch with zero fuzz and confirm the pristine digest is restored. The independent reverse dry run also passed.
 5. Use the exact KELD framework implementation commit `69ce0730c2b23a631dc8324bafb4264f90a4e394` from [GH1404 draft PR #1447](https://github.com/gyldlab/keld/pull/1447), as recorded in [SOURCE.json](SOURCE.json). Verify the separately recorded provider, source-manifest and local packaging receipts before attempting a reproduction.
 
+## Important follow-up: reproducibility is not complete
+
+The later signed V9 installed **fresh-start AC11 run failed with KELD-CORE-037 before Bun Bound/first window**. The existing five-second authenticated generation deadline was not met after Guardian registration. This later failure does not erase prior V9 workflow passes, but **deterministic startup, same-recovered-Host terminal proof and production readiness are NOT established**. Its recorded failure is [GH1404 #6704537708](https://github.com/gyldlab/keld/issues/1404#issuecomment-6704537708). Detailed earlier private native evidence is not currently accessible in the active Mac session; this repository contains source-only hashes/links, not recovered raw logs.
+
 ## Qualified observations and remaining limits
 
 Root reports one locally ad-hoc signed **V9** macOS `.app`/DMG build and real original-draw.io Save, Cancel, Discard, and post-Bun-G2 recovery Save workflows passing. The V9 DMG SHA-256 is `b0984a9ba0666169a24438d0ca404d6f9e4634ee058ef969a740a5ac1717a9d4`. An **ordinary** installed Host had a separately observed kernel exit status of zero; a recovered Host was also observed exiting zero, but its same-birth exit observer had **not** been pre-registered. Recovery shutdown therefore lacks that stronger independent observer proof. [EVIDENCE.md](EVIDENCE.md) separates source proof, packaging proof, native workflow proof, and that terminal-proof limit.

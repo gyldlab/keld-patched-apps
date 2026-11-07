@@ -46,7 +46,17 @@ The `.app` is a directory; it has no single normal file SHA-256. The build recei
 
 Root also reports an installed tamper/refusal control passing. The current V9 native success does not erase historical V6 crash-recovery failures or imply watcher replay, in-flight callback replay, broad multi-window support, or generalized compatibility.
 
-## 4. Public-release and platform limits
+## 4. Subsequent fresh-start failure and current raw-evidence limitation
+
+**A later independently executed, signed V9 AC11 test failed on 2026-11-07.** The fixed V9 application passed strict codesign and actual Launch Services open, but the initial Bun generation did not authenticate as **Bound** within the existing 5-second deadline. The Host reported **KELD-CORE-037**, with resource-attempt counts `listener=1 child=1 window=0`; no native editor opened. The test did **not** reach a G1 edit, Bun crash, G2 Save, or same-birth kernel exit. This limits deterministic installed-startup acceptance despite the separate earlier passing workflows.
+
+Authoritative public failure receipt: [GH1404 comment 6704537708](https://github.com/gyldlab/keld/issues/1404#issuecomment-6704537708). The later read-only diagnosis identifies the actual macOS `await_bound_generation` at `crates/keld-core/src/app_session.rs:5053–5108`, not the Windows/Linux-only code at 4779–4805. A successful authenticated Guardian registration preceded the missing Bun Bound; the exact reason Bun did not bind is **not established**. No deadline, app permission or security check was relaxed.
+
+The earlier V9 signed artifact/provider hashes above remain useful immutable *identifiers*, but the original private raw build/native evidence directory was unexpectedly absent on the test machine during follow-up. Its disappearance cause is unknown. This source-only record does **not** restore or attach those raw receipts, and the cited earlier PASS results must not be relabeled as freshly reproduced or complete production readiness. New private CI/readiness follow-up evidence is independent of the signed V9 artifact.
+
+Separate infrastructure blocker: [KELD #1447](https://github.com/gyldlab/keld/pull/1447) is a draft with protected CI-provenance and historical secret-scanner failures; [GH1449](https://github.com/gyldlab/keld/issues/1449) requests independent trusted-base security admission. Neither is an installed-app qualification.
+
+## 5. Public-release and platform limits
 
 The bundle/DMG is for **local ad-hoc development installation**. There is **no verified Developer ID notarization or public publisher trust**, no separate second-Mac installation proof, no performance or application-size comparison score, and no Windows/Linux implementation or native acceptance. The explicit Legacy profile is **not** proof of Strict-profile sandboxing.
 

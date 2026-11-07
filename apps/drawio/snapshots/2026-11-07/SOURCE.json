@@ -58,6 +58,10 @@
     "public_notarization": "UNVERIFIED",
     "second_mac": "UNVERIFIED",
     "performance_score": "NOT_MEASURED",
-    "windows_linux": "DESIGN_ONLY"
+    "windows_linux": "DESIGN_ONLY",
+    "subsequent_ac11_fresh_launch": "FAIL_CORE037_INITIAL_BUN_BOUND_TIMEOUT_BEFORE_WINDOW",
+    "same_birth_recovered_kernel_exit": "NOT_PROVED_AFTER_FAILED_AC11_RUN",
+    "historical_raw_receipts_currently_accessible": "NO_AS_OF_2026_11_07",
+    "latest_failure_public_record": "https://github.com/gyldlab/keld/issues/1404#issuecomment-6704537708"
   }
 }

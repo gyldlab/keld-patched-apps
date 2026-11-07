@@ -8,6 +8,7 @@ The V9 installed original editor completed Save, Cancel, Discard and post-Bun
 generation-2 recovery Save on a real Mac. An ordinary Host's kernel-zero exit
 was observed. The recovery Host also exited zero, but its same-birth exit
 observer was not pre-registered; see the [V9 evidence limits](snapshots/2026-11-07/EVIDENCE.md).
+A **later fresh V9 launch failed** with `KELD-CORE-037` before the first window; the cause is still under investigation. The source record is not a reliable-startup or production-ready certification. Follow the [subsequent failure and evidence limits](snapshots/2026-11-07/EVIDENCE.md).
 
 This repository's **current packet is source-only**. It carries the bounded
 original-main patch, reproducibility hashes, attribution and evidence, with no
