@@ -1,13 +1,18 @@
 # draw.io on KELD
 
-**Current record:** [2026-11-03 macOS developer snapshot](snapshots/2026-11-03/README.md)
+**Current record:** [2026-11-07 macOS V9 source-only record](snapshots/2026-11-07/README.md) · **Earlier record:** [2026-11-03 developer snapshot](snapshots/2026-11-03/README.md)
 
-The original draw.io application has a working macOS migration prototype on KELD.
-The prototype runs in the explicitly declared Legacy profile.
-The tested workflow covers opening, editing, saving, reopening, cancelling a close,
-discarding unsaved changes, and quitting the native application.
+The original draw.io Desktop 31.7.0 now has a locally built, ad-hoc signed
+KELD macOS ARM64 `.app` and DMG, using the explicitly declared Legacy profile.
+The V9 installed original editor completed Save, Cancel, Discard and post-Bun
+generation-2 recovery Save on a real Mac. An ordinary Host's kernel-zero exit
+was observed. The recovery Host also exited zero, but its same-birth exit
+observer was not pre-registered; see the [V9 evidence limits](snapshots/2026-11-07/EVIDENCE.md).
+A **later fresh V9 launch failed** with `KELD-CORE-037` before the first window; the cause is still under investigation. The source record is not a reliable-startup or production-ready certification. Follow the [subsequent failure and evidence limits](snapshots/2026-11-07/EVIDENCE.md).
 
-The stored ZIP is **not** a signed installer, and it is **not** a verified
-standalone application on another Mac.
-
-The snapshot report defines the tested scope and the remaining work.
+This repository's **current packet is source-only**. It carries the bounded
+original-main patch, reproducibility hashes, attribution and evidence, with no
+signed app, installer, binaries or vendor files. The earlier ZIP is a separate
+developer snapshot and remains **not** a verified standalone installer.
+Neither record establishes public notarization, a second Mac, Windows/Linux
+compatibility, or a performance benchmark.
